@@ -18,15 +18,12 @@
     <ClCompile Include="IMG Builder.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="blowfish\BlowFish.cpp">
+    <ClCompile Include="BlowFish.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="ReadMe.txt" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="blowfish\Blowfish.h">
+    <ClInclude Include="Blowfish.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
