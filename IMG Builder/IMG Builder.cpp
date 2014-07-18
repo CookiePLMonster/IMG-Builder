@@ -84,21 +84,6 @@ public:
 size_t	cINIEntry::nBiggestFile;
 void*	cINIEntry::pMalloc;
 
-/*DWORD CountTotalAmountOfFiles(vector<INIEntry>& pVector)
-{
-	WORD	wLoopCounter = 0;
-	DWORD	dwTotalFiles = 0;
-	DWORD	dwVectorSize = pVector.size();
-	do
-	{
-		dwTotalFiles += pVector.at(wLoopCounter).GetNumberOfFiles();
-		++wLoopCounter;
-	}
-	while ( wLoopCounter < dwVectorSize );
-
-	return dwTotalFiles;
-}*/
-
 static unsigned char		bKeyVersion = 0;
 
 void StrPathAppend(std::wstring& pszPath, const wchar_t* pszMore)
@@ -113,44 +98,10 @@ void StrPathAppend(std::wstring& pszPath, const wchar_t* pszMore)
 		pszPath = pszMore;
 }
 
-//bool cINIEntry::CountFilesInDir()
 
-	/*WIN32_FIND_DATA	FileData;
-	char			cString[MAX_PATH];
-
-	wFilesInDir = 0;
-	sprintf(cString, "%s\\*", cFileLine);
-
-	HANDLE hSearch = FindFirstFile (cString, &FileData);
-	if ( hSearch != INVALID_HANDLE_VALUE )
-	{
-		cout << "Counting files in " << cFileLine << " directory...\n";
-		do
-		{
-			if ( !(FileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
-				++wFilesInDir;
-		}
-		while ( FindNextFile(hSearch, &FileData) );
-
-		FindClose(hSearch);
-	}
-	else
-	{
-		cout << "Something has gone wrong while trying to access files in " << cFileLine << " dir!\n";
-		return false;
-	}
-
-	dwTotalFiles += wFilesInDir;
-//	wFilesInDir -= 2;
-
-	cout << " Found " << wFilesInDir << " files\n\n";*/
-//	return true;
-
-
-bool FindFilesInDir(std::vector<cINIEntry>& vecSpace, const char* pDirName)
+void FindFilesInDir(std::vector<cINIEntry>& vecSpace, const char* pDirName)
 {
 	WIN32_FIND_DATA	FileData;
-	//wchar_t			wcString[MAX_PATH];
 	unsigned int	nFoundFiles = 0;
 
 	HANDLE			hSearch = FindFirstFile(L"*", &FileData);
@@ -173,108 +124,44 @@ bool FindFilesInDir(std::vector<cINIEntry>& vecSpace, const char* pDirName)
 		FindClose(hSearch);
 	}
 	else
-	{
-		std::cout << "Something has gone wrong while trying to access files in " << pDirName << " directory!\n";
-		return false;
-	}
-
-//	wFilesInDir -= 2;
+		throw "Can't access files in " + std::string(pDirName) + '!';
 
 	std::cout << " Found " << nFoundFiles << " files\n\n";
-	return true;
-
-	/*WIN32_FIND_DATA	FileData;
-	char			cString[MAX_PATH];
-
-	wFilesInDir = 0;
-	sprintf(cString, "%s\\*", cFileLine);
-
-	HANDLE hSearch = FindFirstFile (cString, &FileData);
-	if ( hSearch != INVALID_HANDLE_VALUE )
-	{
-		cout << "Counting files in " << cFileLine << " directory...\n";
-		do
-		{
-			if ( !(FileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
-				++wFilesInDir;
-		}
-		while ( FindNextFile(hSearch, &FileData) );
-
-		FindClose(hSearch);
-	}
-	else
-	{
-		cout << "Something has gone wrong while trying to access files in " << cFileLine << " dir!\n";
-		return false;
-	}
-
-	dwTotalFiles += wFilesInDir;
-//	wFilesInDir -= 2;
-
-	cout << " Found " << wFilesInDir << " files\n\n";*/
-
 }
 
 
 void cINIEntry::WriteEntryToIMGFile(FILE* hFile, DWORD& headerLoopCtr, DWORD& pDataPos, CIMGHeader* header) const
 {
-	//WIN32_FIND_DATA	FileData;
-	//char			cString[MAX_PATH];
-
-	//sprintf(cString, "%s\\*", cFileLine);
-
-	//HANDLE hSearch = FindFirstFile (cString, &FileData);
-	//if ( hSearch != INVALID_HANDLE_VALUE )
+	std::cout << strFileName.c_str() << '\n';
+	
+	if ( FILE* hFileToBePacked = _wfopen(strFullPath.c_str(), L"rb") )
 	{
-//		FindNextFile(hSearch, &FileData);
-//		FindNextFile(hSearch, &FileData);
-
-		//do
-		{
-			//if ( !(FileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
-			{
-				std::cout << strFileName.c_str() << std::endl;
-				//sprintf(cString, "%s\\%s", cFileLine, FileData.cFileName);
-				if ( FILE* hFileToBePacked = _wfopen(strFullPath.c_str(), L"rb") )
-				{
-					//strncpy(cString, FileData.cFileName, 24);
-	//				fseek(hFileToBePacked, 0, SEEK_END);
-	//				DWORD dwFileSize = ftell(hFileToBePacked);
-					//DWORD dwFileSize = FileData.nFileSizeLow;
-					WORD wSizeToWrite = static_cast<WORD>(nFileSize / 2048 + ( (nFileSize % 2048) != 0 ));
-
-					header[headerLoopCtr].WriteEntry(pDataPos, wSizeToWrite, strFileName.c_str());
-	//				fseek(hFileToBePacked, 0, SEEK_SET);
-
-					if ( !pMalloc )
-						pMalloc = operator new(nBiggestFile);
-					//BYTE* buffer = new BYTE[dwFileSize];
-					fread(pMalloc, nFileSize, 1, hFileToBePacked);
-					fwrite(pMalloc, nFileSize, 1, hFile);
-					fclose(hFileToBePacked);
-					//delete[] buffer;
-
-					++headerLoopCtr;
-					fseek(hFile, wSizeToWrite * 2048 - nFileSize, SEEK_CUR);
-					pDataPos += wSizeToWrite;
-				}
-				else
-					std::cout << "Error opening file " << strFileName.c_str() << "!\n";
-			}
-		}
-		//while ( FindNextFile(hSearch, &FileData) );
-
-		//FindClose(hSearch);
+		WORD wSizeToWrite = static_cast<WORD>(nFileSize / 2048 + ( (nFileSize % 2048) != 0 ));
+	
+		header[headerLoopCtr].WriteEntry(pDataPos, wSizeToWrite, strFileName.c_str());
+	
+		if ( !pMalloc )
+			pMalloc = operator new(nBiggestFile);
+	
+		fread(pMalloc, nFileSize, 1, hFileToBePacked);
+		fwrite(pMalloc, nFileSize, 1, hFile);
+		fclose(hFileToBePacked);
+	
+		++headerLoopCtr;
+		fseek(hFile, wSizeToWrite * 2048 - nFileSize, SEEK_CUR);
+		pDataPos += wSizeToWrite;
 	}
+	else
+		throw "Error opening file " + strFileName + '!';
 }
 
-BYTE ParseINIFile(FILE* hFile, std::vector<cINIEntry>& vecSpace, const wchar_t* pOrgWorkingDir, bool& bEverythingFine)
+BYTE ParseINIFile(FILE* hFile, std::vector<cINIEntry>& vecSpace, const wchar_t* pOrgWorkingDir)
 {
 	char		cFileLine[MAX_PATH];
 	bool		bIsVersionGet = false;
 	BYTE		IMGVer = SA_IMG;
 
-	while ( fgets(cFileLine, MAX_PATH, hFile) && bEverythingFine == true )
+	while ( fgets(cFileLine, MAX_PATH, hFile) )
 	{
 		if ( cFileLine[0] == ';' || cFileLine[0] == '\n' )
 			continue;
@@ -335,49 +222,16 @@ BYTE ParseINIFile(FILE* hFile, std::vector<cINIEntry>& vecSpace, const wchar_t* 
 #endif
 				continue;
 			}
-			//else
-				//IMGVer = SA_IMG;
 		}
 		const char* pStrtok = strtok(cFileLine, " \n");
-		//cINIEntry entry;
-
-		//entry.PutStringInClass(pStrtok);
-		//bEverythingFine = entry.CountFilesInDir();
-		//pVectorSpace.push_back(entry);
 
 		SetCurrentDirectoryA(pStrtok);
-		bEverythingFine = FindFilesInDir(vecSpace, pStrtok);
+		FindFilesInDir(vecSpace, pStrtok);
 		SetCurrentDirectory(pOrgWorkingDir);
 	}
 
 	return IMGVer;
 }
-
-/*std::wstring MakeFileName(const wchar_t* pInputName, const wchar_t* pOutPath, const wchar_t* pExtension)
-{
-	std::wstring	strOutPath, strFileName, strInputName(pInputName);
-	auto			slashPos = strInputName.find_last_of(L"/\\");
-	auto			dotPos = strInputName.find_last_of('.');
-
-	if ( slashPos == std::string::npos )
-		slashPos = 0;
-	else
-		++slashPos;
-
-	// Get path
-	if ( pOutPath )
-		strOutPath = pOutPath;
-	else
-		strOutPath = strInputName.substr(0, slashPos);
-
-	// Get filename
-	strFileName = strInputName.substr(slashPos, dotPos);
-
-	StrPathAppend(strOutPath, strFileName.c_str());
-	strFileName += pExtension;
-
-	return strFileName;
-}*/
 
 std::wstring MakeFullFilePath(const std::wstring& strIniPath, const std::wstring& strIniName, const wchar_t* pExtension)
 {
@@ -449,16 +303,6 @@ void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>&
 
 	CIMGHeader*		header = new CIMGHeader[dwTotalFiles];
 
-	/*DWORD			dwLoopCounter = 0;
-	DWORD			dwVectorSize = pVector.size();
-
-	do
-	{
-		pVector.at(dwLoopCounter).WriteEntryToIMGFile(hFile, dwHeaderEntriesCounter, dwCurrentDataPos, header, Version);
-		++dwLoopCounter;
-	}
-	while ( dwLoopCounter < dwVectorSize );*/
-
 	for ( auto it = pVector.cbegin(); it != pVector.cend(); it++ )
 		it->WriteEntryToIMGFile(hFile, dwHeaderEntriesCounter, dwCurrentDataPos, header);
 
@@ -510,59 +354,39 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 	UNREFERENCED_PARAMETER(envp);
 
 	std::cout << "Native IMG Builder 1.4 by Silent\n\n";
-	if ( argc < 2 )
+
+	try
 	{
-		std::cout << "Specify the INI file!\n";
-		return -1;
-	}
-
-	if ( FILE* hInputFile = _wfopen(argv[1], L"r") )
-	{
-		// INI path
-		std::wstring				strIniPath = MakeIniPath(argv[1]);
-		
-		// INI name
-		std::wstring				strIniName = MakeIniName(argv[1]);
-
-		std::vector<cINIEntry>		INIEntries;
-		std::wstring				strOutputFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".img");
-		std::wstring				strHeaderFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".dir");
-		//wchar_t					cOutputFileName[MAX_PATH];
-		//wchar_t					cHeaderFileName[MAX_PATH];
-		bool						bEverythingFine = true;
-
-		//MakeOutputFileName(argv[1], argc > 2 ? argv[2] : nullptr, cOutputFileName, L"img");
-		//MakeOutputFileName(argv[1], argc > 2 ? argv[2] : nullptr, cHeaderFileName, L"dir");
-
-		cINIEntry::Init();
-
-		//if ( wcsstr(cOutputFileName, L"dlc2") )
-		if ( strOutputFileName.find(L"dlc2") != std::wstring::npos )
-			bKeyVersion = 1;
-
-
-
-		/*char	cPath[MAX_PATH];
-		strncpy(cPath, argv[0], MAX_PATH);
-		if ( char* pch = strrchr(cPath, '\\') )
+		if ( argc < 2 )
 		{
-			*pch = '\0';
-			SetCurrentDirectory(cPath);
-		}*/
+			throw "Specify the INI file!\n";
+		}
 
-		wchar_t			wcCurrentDir[MAX_PATH];
-		GetCurrentDirectory(MAX_PATH, wcCurrentDir);
-		if ( !strIniPath.empty() )
-			SetCurrentDirectory(strIniPath.c_str());
-		
-		BYTE IMGVersion = ParseINIFile(hInputFile, INIEntries, wcCurrentDir, bEverythingFine);
-		fclose(hInputFile);
-
-		//SetCurrentDirectory(wcCurrentDir);
-
-		if ( bEverythingFine )
+		if ( FILE* hInputFile = _wfopen(argv[1], L"r") )
 		{
-//			DWORD dwTotalFiles = CountTotalAmountOfFiles(INIEntries);
+			// INI path
+			std::wstring				strIniPath = MakeIniPath(argv[1]);
+		
+			// INI name
+			std::wstring				strIniName = MakeIniName(argv[1]);
+
+			std::vector<cINIEntry>		INIEntries;
+			std::wstring				strOutputFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".img");
+			std::wstring				strHeaderFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".dir");
+
+			cINIEntry::Init();
+
+			if ( strOutputFileName.find(L"dlc2") != std::wstring::npos )
+				bKeyVersion = 1;
+
+			wchar_t			wcCurrentDir[MAX_PATH];
+			GetCurrentDirectory(MAX_PATH, wcCurrentDir);
+			if ( !strIniPath.empty() )
+				SetCurrentDirectory(strIniPath.c_str());
+		
+			BYTE IMGVersion = ParseINIFile(hInputFile, INIEntries, wcCurrentDir);
+			fclose(hInputFile);
+
 
 			std::cout << "Found " << INIEntries.size() << " files in total.\n";
 
@@ -576,27 +400,35 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 						cINIEntry::DeInit();
 						fclose(hOutputFile);
 						fclose(hHeaderFile);
-						std::cout << "Done!\n";
 					}
 					else
-						std::cout << "Error creating file " << strHeaderFileName.c_str() << "!\n";
+						throw L"Error creating file " + strHeaderFileName + L'!';
 				}
 				else
 				{
 					CreateIMGFile(hOutputFile, nullptr, INIEntries, IMGVersion);
 					cINIEntry::DeInit();
 					fclose(hOutputFile);
-					std::cout << "Done!\n";
 				}
+
+				std::cout << "Done!\n";
 			}
 			else
-				std::cout << "Error creating file " << strOutputFileName.c_str() << "!\n";
+				throw L"Error creating file " + strOutputFileName + L'!';
 		}
 		else
-			std::cout << "Error while reading INI File, build cancelled...\n";
+			throw L"Error opening file " + std::wstring(argv[1]) + L'!';
 	}
-	else
-		std::cout << "Error opening file " << argv[1] << "!\n";
+	catch ( std::string strException )
+	{
+		std::cerr << strException.c_str();
+		return 2;
+	}
+	catch ( std::wstring strException )
+	{
+		std::wcerr << strException.c_str();
+		return 2;
+	}
 
 	return 0;
 }
