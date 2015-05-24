@@ -379,10 +379,11 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 			if ( strOutputFileName.find(L"dlc2") != std::wstring::npos )
 				bKeyVersion = 1;
 
-			wchar_t			wcCurrentDir[MAX_PATH];
-			GetCurrentDirectory(MAX_PATH, wcCurrentDir);
 			if ( !strIniPath.empty() )
 				SetCurrentDirectory(strIniPath.c_str());
+
+			wchar_t			wcCurrentDir[MAX_PATH];
+			GetCurrentDirectory(MAX_PATH, wcCurrentDir);
 		
 			BYTE IMGVersion = ParseINIFile(hInputFile, INIEntries, wcCurrentDir);
 			fclose(hInputFile);
