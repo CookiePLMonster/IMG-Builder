@@ -13,10 +13,16 @@
 #include <vector>
 #include <string>
 #include <Shlwapi.h>
+#include <memory>
 
-#define VC_IMG		0
-#define SA_IMG		1
-#define VCSPC_IMG	2
+enum
+{
+	VC_IMG,
+	SA_IMG,
+	VCSPC_IMG
+};
+
+#define SCRATCH_PAD_SIZE 32767
 
 class CIMGHeader
 {
@@ -99,7 +105,7 @@ void StrPathAppend(std::wstring& pszPath, const wchar_t* pszMore)
 }
 
 
-void FindFilesInDir(std::vector<cINIEntry>& vecSpace, const char* pDirName)
+void FindFilesInDir(std::vector<cINIEntry>& vecSpace, const wchar_t* pDirName)
 {
 	WIN32_FIND_DATA	FileData;
 	unsigned int	nFoundFiles = 0;
@@ -108,7 +114,7 @@ void FindFilesInDir(std::vector<cINIEntry>& vecSpace, const char* pDirName)
 
 	if ( hSearch != INVALID_HANDLE_VALUE )
 	{
-		std::cout << "Parsing files from " << pDirName << " directory...\n";
+		std::wcout << L"Parsing files from " << pDirName << L" directory...\n";
 
 		do
 		{
@@ -124,7 +130,7 @@ void FindFilesInDir(std::vector<cINIEntry>& vecSpace, const char* pDirName)
 		FindClose(hSearch);
 	}
 	else
-		throw "Can't access files in " + std::string(pDirName) + '!';
+		throw L"Can't access files in " + std::wstring(pDirName) + L'!';
 
 	std::cout << " Found " << nFoundFiles << " files\n\n";
 }
@@ -155,13 +161,68 @@ void cINIEntry::WriteEntryToIMGFile(FILE* hFile, DWORD& headerLoopCtr, DWORD& pD
 		throw "Error opening file " + strFileName + '!';
 }
 
-BYTE ParseINIFile(FILE* hFile, std::vector<cINIEntry>& vecSpace, const wchar_t* pOrgWorkingDir)
+BYTE ParseINIFile( std::wstring& iniName, std::vector<cINIEntry>& vecSpace )
 {
-	char		cFileLine[MAX_PATH];
-	bool		bIsVersionGet = false;
+	std::wstring strFileName = iniName;
+	std::unique_ptr< wchar_t[] > scratch( new wchar_t[ SCRATCH_PAD_SIZE ] );
 	BYTE		IMGVer = SA_IMG;
 
-	while ( fgets(cFileLine, MAX_PATH, hFile) )
+	// Add .\ if path is relative
+	if ( PathIsRelative( strFileName.c_str() ) != FALSE )
+	{
+		strFileName.insert( 0, L".\\" );
+	}
+
+	wchar_t			wcCurrentDir[MAX_PATH];
+	GetCurrentDirectory(MAX_PATH, wcCurrentDir);
+
+	// Get attributes
+	GetPrivateProfileString( L"Attribs", L"version", nullptr, scratch.get(), SCRATCH_PAD_SIZE, strFileName.c_str() );
+	if ( scratch[0] != '\0' )
+	{
+		std::wstring strVersion = scratch.get();
+		for ( auto& ch : strVersion )
+			ch = towlower( ch );
+
+		if ( strVersion == L"oldimg" )
+		{
+			std::cout << "Using v1 IMG...\n";
+			IMGVer = VC_IMG;
+		}
+		else if ( strVersion == L"newimg" )
+		{
+			std::cout << "Using v2 IMG...\n";
+			IMGVer = SA_IMG;
+		}
+#if defined INC_ENCRYPTION
+		else if ( strVersion == L"newimg" )
+		{
+			std::cout << "Using v2 IMG with Encryption...\n";
+			IMGVer = VCSPC_IMG;
+		}
+#endif
+	}
+
+	// Read all files list
+	GetPrivateProfileSection( L"Dirs", scratch.get(), SCRATCH_PAD_SIZE, strFileName.c_str() );
+
+	for( wchar_t* raw = scratch.get(); *raw != '\0'; ++raw )
+	{
+		// Construct a std::wstring with the line
+		std::wstring strTempFile;
+		do
+		{
+			strTempFile.push_back( *raw );
+			raw++;
+		}
+		while ( *raw != '\0' );
+
+		SetCurrentDirectory( strTempFile.c_str() );
+		FindFilesInDir(vecSpace, strTempFile.c_str() );
+		SetCurrentDirectory( wcCurrentDir );
+	}
+
+	/*while ( fgets(cFileLine, MAX_PATH, hFile) )
 	{
 		if ( cFileLine[0] == ';' || cFileLine[0] == '\n' )
 			continue;
@@ -173,7 +234,7 @@ BYTE ParseINIFile(FILE* hFile, std::vector<cINIEntry>& vecSpace, const wchar_t* 
 			{
 				const char* pStrtok = strtok(cFileLine, " \n =");
 				pStrtok = strtok(NULL, " \n =");
-#if INC_ENCRYPTION
+#if defined INC_ENCRYPTION
 				if ( strncmp(pStrtok, "ENCIMG", 6) )
 				{
 					if ( strncmp(pStrtok, "NEWIMG", 6) )
@@ -227,8 +288,8 @@ BYTE ParseINIFile(FILE* hFile, std::vector<cINIEntry>& vecSpace, const wchar_t* 
 
 		SetCurrentDirectoryA(pStrtok);
 		FindFilesInDir(vecSpace, pStrtok);
-		SetCurrentDirectory(pOrgWorkingDir);
-	}
+		SetCurrentDirectory(wcCurrentDir);
+	}*/
 
 	return IMGVer;
 }
@@ -270,7 +331,7 @@ void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>&
 	DWORD			dwCurrentDataPos;
 	DWORD			dwTotalFiles = pVector.size();
 
-#if INC_ENCRYPTION
+#ifdef INC_ENCRYPTION
 	unsigned char	encKey[24] = {	0x81, 0x45, 0x26, 0xFA, 0xDA, 0x7C, 0x6C, 0x11,
 										0x86, 0x93, 0xCC, 0x90, 0x2B, 0xB7, 0xE2, 0x32,
 										0x10, 0x0F, 0x56, 0x9B, 0x02, 0x8A, 0x6C, 0x5F };
@@ -286,14 +347,16 @@ void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>&
 		fileHeader[0] = MAKEFOURCC('V', 'E', 'R', '2');
 		fileHeader[1] = dwTotalFiles;
 
-#if INC_ENCRYPTION
+#ifdef INC_ENCRYPTION
 		if ( Version == VCSPC_IMG )
 			blowFish.Encrypt((unsigned char*)fileHeader, 8, CBlowFish::ECB);
 #endif
 //		fputs("VER2", hFile);
 		fwrite(fileHeader, 8, 1, hFile);
 
+#ifdef INC_ENCRYPTION
 		blowFish.ResetChain();
+#endif
 		dwCurrentDataPos = (8 + 32 * dwTotalFiles) / 2048 + ((8 + 32 * dwTotalFiles) % 2048 != 0);
 		fseek(hFile, dwCurrentDataPos * 2048, SEEK_SET);
 		hHeaderFile = hFile;
@@ -358,76 +421,64 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 	try
 	{
 		if ( argc < 2 )
-		{
 			throw "Specify the INI file!\n";
-		}
 
-		if ( FILE* hInputFile = _wfopen(argv[1], L"r") )
+		// INI path
+		std::wstring				strIniPath = MakeIniPath(argv[1]);
+		
+		// INI name
+		std::wstring				strIniName = MakeIniName(argv[1]);
+
+		std::vector<cINIEntry>		INIEntries;
+		std::wstring				strOutputFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".img");
+		std::wstring				strHeaderFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".dir");
+
+		cINIEntry::Init();
+
+		if ( strOutputFileName.find(L"dlc2") != std::wstring::npos )
+			bKeyVersion = 1;
+
+		if ( !strIniPath.empty() )
+			SetCurrentDirectory(strIniPath.c_str());
+		
+		BYTE IMGVersion = ParseINIFile( strIniName, INIEntries );
+
+		std::cout << "Found " << INIEntries.size() << " files in total.\n";
+
+		if ( FILE* hOutputFile = _wfopen(strOutputFileName.c_str(), L"wb") )
 		{
-			// INI path
-			std::wstring				strIniPath = MakeIniPath(argv[1]);
-		
-			// INI name
-			std::wstring				strIniName = MakeIniName(argv[1]);
-
-			std::vector<cINIEntry>		INIEntries;
-			std::wstring				strOutputFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".img");
-			std::wstring				strHeaderFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".dir");
-
-			cINIEntry::Init();
-
-			if ( strOutputFileName.find(L"dlc2") != std::wstring::npos )
-				bKeyVersion = 1;
-
-			if ( !strIniPath.empty() )
-				SetCurrentDirectory(strIniPath.c_str());
-
-			wchar_t			wcCurrentDir[MAX_PATH];
-			GetCurrentDirectory(MAX_PATH, wcCurrentDir);
-		
-			BYTE IMGVersion = ParseINIFile(hInputFile, INIEntries, wcCurrentDir);
-			fclose(hInputFile);
-
-
-			std::cout << "Found " << INIEntries.size() << " files in total.\n";
-
-			if ( FILE* hOutputFile = _wfopen(strOutputFileName.c_str(), L"wb") )
+			if ( IMGVersion == VC_IMG )
 			{
-				if ( IMGVersion == VC_IMG )
+				if ( FILE* hHeaderFile = _wfopen(strHeaderFileName.c_str(), L"wb") )
 				{
-					if ( FILE* hHeaderFile = _wfopen(strHeaderFileName.c_str(), L"wb") )
-					{
-						CreateIMGFile(hOutputFile, hHeaderFile, INIEntries, IMGVersion);
-						cINIEntry::DeInit();
-						fclose(hOutputFile);
-						fclose(hHeaderFile);
-					}
-					else
-						throw L"Error creating file " + strHeaderFileName + L'!';
-				}
-				else
-				{
-					CreateIMGFile(hOutputFile, nullptr, INIEntries, IMGVersion);
+					CreateIMGFile(hOutputFile, hHeaderFile, INIEntries, IMGVersion);
 					cINIEntry::DeInit();
 					fclose(hOutputFile);
+					fclose(hHeaderFile);
 				}
-
-				std::cout << "Done!\n";
+				else
+					throw L"Error creating file " + strHeaderFileName + L'!';
 			}
 			else
-				throw L"Error creating file " + strOutputFileName + L'!';
+			{
+				CreateIMGFile(hOutputFile, nullptr, INIEntries, IMGVersion);
+				cINIEntry::DeInit();
+				fclose(hOutputFile);
+			}
+
+			std::cout << "Done!\n";
 		}
 		else
-			throw L"Error opening file " + std::wstring(argv[1]) + L'!';
+			throw L"Error creating file " + strOutputFileName + L'!';
 	}
-	catch ( std::string strException )
+	catch ( std::string& strException )
 	{
-		std::cerr << strException.c_str();
+		std::cerr << strException;
 		return 2;
 	}
-	catch ( std::wstring strException )
+	catch ( std::wstring& strException )
 	{
-		std::wcerr << strException.c_str();
+		std::wcerr << strException;
 		return 2;
 	}
 
