@@ -1,6 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 11.00
-# Visual Studio 2010
+# Visual Studio 2015
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "IMG Builder", "IMG Builder\IMG Builder.vcxproj", "{49516334-1C20-405C-9C54-BB9FB45D4EE5}"
 EndProject
 Global
