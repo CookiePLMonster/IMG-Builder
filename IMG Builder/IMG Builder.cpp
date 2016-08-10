@@ -416,7 +416,8 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 {
 	UNREFERENCED_PARAMETER(envp);
 
-	std::cout << "Native IMG Builder 1.4 by Silent\n\n";
+	std::ios_base::sync_with_stdio(false);
+	std::cout << "Native IMG Builder 1.5 by Silent\n\n";
 
 	try
 	{
