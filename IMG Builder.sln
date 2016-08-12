@@ -1,24 +1,32 @@
 ﻿
-Microsoft Visual Studio Solution File, Format Version 11.00
-# Visual Studio 2015
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 14
+VisualStudioVersion = 14.0.25420.1
+MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "IMG Builder", "IMG Builder\IMG Builder.vcxproj", "{49516334-1C20-405C-9C54-BB9FB45D4EE5}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
+		Debug|x64 = Debug|x64
 		Encrypted|Win32 = Encrypted|Win32
-		Private with Encryption|Win32 = Private with Encryption|Win32
+		Encrypted|x64 = Encrypted|x64
 		Release|Win32 = Release|Win32
+		Release|x64 = Release|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Debug|Win32.ActiveCfg = Debug|Win32
 		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Debug|Win32.Build.0 = Debug|Win32
+		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Debug|x64.ActiveCfg = Debug|x64
+		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Debug|x64.Build.0 = Debug|x64
 		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Encrypted|Win32.ActiveCfg = Encrypted|Win32
 		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Encrypted|Win32.Build.0 = Encrypted|Win32
-		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Private with Encryption|Win32.ActiveCfg = Release|Win32
-		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Private with Encryption|Win32.Build.0 = Release|Win32
+		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Encrypted|x64.ActiveCfg = Encrypted|x64
+		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Encrypted|x64.Build.0 = Encrypted|x64
 		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Release|Win32.ActiveCfg = Release|Win32
 		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Release|Win32.Build.0 = Release|Win32
+		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Release|x64.ActiveCfg = Release|x64
+		{49516334-1C20-405C-9C54-BB9FB45D4EE5}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

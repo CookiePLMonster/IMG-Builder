@@ -2,7 +2,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <direct.h>
-#if INC_ENCRYPTION
+#if defined INC_ENCRYPTION
 #include "BlowFish\Blowfish.h"
 #endif
 
@@ -22,23 +22,24 @@ enum
 	VCSPC_IMG
 };
 
-#define SCRATCH_PAD_SIZE 32767
-
 class CIMGHeader
 {
 private:
-	DWORD	fileOffset;
-	WORD	sizeFirstPriority;
-	WORD	sizeSecondPriority;
-	char	name[24];
+	static const size_t	IMG_NAME_LENGTH = 24;
+
+	uint32_t	fileOffset;
+	uint16_t	sizeFirstPriority;
+	uint16_t	sizeSecondPriority;
+	char		name[IMG_NAME_LENGTH];
 
 public:
-	void	WriteEntry(DWORD fOff, WORD sizeFPriority, const char* pName)
+	void	WriteEntry(uint32_t fOff, uint16_t sizeFPriority, const char* pName)
 	{
 		fileOffset = fOff;
 		sizeFirstPriority = sizeFPriority;
 		sizeSecondPriority = 0;
-		strncpy(name, pName, 24);
+		strncpy( name, pName, IMG_NAME_LENGTH-1 );
+		name[IMG_NAME_LENGTH-1] = '\0';
 	}
 
 };
@@ -73,7 +74,7 @@ public:
 			nBiggestFile = nFileSize;
 	}
 
-	void			WriteEntryToIMGFile(FILE* hFile, DWORD& headerLoopCtr, DWORD& pDataPos, CIMGHeader* header) const;
+	void			WriteEntryToIMGFile(FILE* hFile, size_t headerLoopCtr, size_t& pDataPos, CIMGHeader* header) const;
 
 	static void		Init()
 	{
@@ -136,15 +137,15 @@ void FindFilesInDir(std::vector<cINIEntry>& vecSpace, const wchar_t* pDirName)
 }
 
 
-void cINIEntry::WriteEntryToIMGFile(FILE* hFile, DWORD& headerLoopCtr, DWORD& pDataPos, CIMGHeader* header) const
+void cINIEntry::WriteEntryToIMGFile(FILE* hFile, size_t headerLoopCtr, size_t& pDataPos, CIMGHeader* header) const
 {
 	std::cout << strFileName.c_str() << '\n';
 	
 	if ( FILE* hFileToBePacked = _wfopen(strFullPath.c_str(), L"rb") )
 	{
-		WORD wSizeToWrite = static_cast<WORD>(nFileSize / 2048 + ( (nFileSize % 2048) != 0 ));
+		uint16_t wSizeToWrite = static_cast<uint16_t>( ((nFileSize + 2048 - 1) & ~(2048 - 1)) / 2048 );
 	
-		header[headerLoopCtr].WriteEntry(pDataPos, wSizeToWrite, strFileName.c_str());
+		header[headerLoopCtr].WriteEntry(static_cast<uint32_t>(pDataPos), wSizeToWrite, strFileName.c_str());
 	
 		if ( pMalloc == nullptr )
 			pMalloc = operator new(nBiggestFile);
@@ -154,18 +155,20 @@ void cINIEntry::WriteEntryToIMGFile(FILE* hFile, DWORD& headerLoopCtr, DWORD& pD
 		fclose(hFileToBePacked);
 	
 		++headerLoopCtr;
-		fseek(hFile, wSizeToWrite * 2048 - nFileSize, SEEK_CUR);
+		_fseeki64(hFile, wSizeToWrite * 2048 - nFileSize, SEEK_CUR);
 		pDataPos += wSizeToWrite;
 	}
 	else
 		throw "Error opening file " + strFileName + '!';
 }
 
-BYTE ParseINIFile( std::wstring& iniName, std::vector<cINIEntry>& vecSpace )
+uint8_t ParseINIFile( std::wstring& iniName, std::vector<cINIEntry>& vecSpace )
 {
+	const size_t SCRATCH_PAD_SIZE = 32767;
+
 	std::wstring strFileName = iniName;
 	std::unique_ptr< wchar_t[] > scratch( new wchar_t[ SCRATCH_PAD_SIZE ] );
-	BYTE		IMGVer = SA_IMG;
+	uint8_t		IMGVer = SA_IMG;
 
 	// Add .\ if path is relative
 	if ( PathIsRelative( strFileName.c_str() ) != FALSE )
@@ -254,15 +257,15 @@ std::wstring MakeIniName(const std::wstring& strFullIniPath)
 	return strFullIniPath.substr(slashPos);
 }
 
-void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>& pVector, BYTE Version)
+void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>& pVector, uint8_t Version)
 {
 	std::cout << "Generating the IMG, it may take a few minutes...\n\n";
 
-	DWORD			dwHeaderEntriesCounter = 0;
-	DWORD			dwCurrentDataPos;
-	DWORD			dwTotalFiles = pVector.size();
+	size_t			dwHeaderEntriesCounter = 0;
+	size_t			dwCurrentDataPos;
+	size_t			dwTotalFiles = pVector.size();
 
-#ifdef INC_ENCRYPTION
+#if defined INC_ENCRYPTION
 	unsigned char	encKey[24] = {	0x81, 0x45, 0x26, 0xFA, 0xDA, 0x7C, 0x6C, 0x11,
 										0x86, 0x93, 0xCC, 0x90, 0x2B, 0xB7, 0xE2, 0x32,
 										0x10, 0x0F, 0x56, 0x9B, 0x02, 0x8A, 0x6C, 0x5F };
@@ -274,21 +277,21 @@ void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>&
 
 	if ( Version != VC_IMG )
 	{
-		DWORD fileHeader[2];
+		uint32_t fileHeader[2];
 		fileHeader[0] = MAKEFOURCC('V', 'E', 'R', '2');
-		fileHeader[1] = dwTotalFiles;
+		fileHeader[1] = static_cast<uint32_t>(dwTotalFiles);
 
-#ifdef INC_ENCRYPTION
+#if defined INC_ENCRYPTION
 		if ( Version == VCSPC_IMG )
 			blowFish.Encrypt((unsigned char*)fileHeader, 8, CBlowFish::ECB);
 #endif
 		fwrite(fileHeader, 8, 1, hFile);
 
-#ifdef INC_ENCRYPTION
+#if defined INC_ENCRYPTION
 		blowFish.ResetChain();
 #endif
 		dwCurrentDataPos = (8 + 32 * dwTotalFiles) / 2048 + ((8 + 32 * dwTotalFiles) % 2048 != 0);
-		fseek(hFile, dwCurrentDataPos * 2048, SEEK_SET);
+		_fseeki64(hFile, dwCurrentDataPos * 2048, SEEK_SET);
 		hHeaderFile = hFile;
 	}
 	else
@@ -296,31 +299,31 @@ void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>&
 
 	CIMGHeader*		header = new CIMGHeader[dwTotalFiles];
 
-	for ( auto it = pVector.cbegin(); it != pVector.cend(); it++ )
-		it->WriteEntryToIMGFile(hFile, dwHeaderEntriesCounter, dwCurrentDataPos, header);
+	for ( const auto& it : pVector )
+		it.WriteEntryToIMGFile(hFile, dwHeaderEntriesCounter++, dwCurrentDataPos, header);
 
-	fseek(hHeaderFile, ( Version != VC_IMG ) * 8, SEEK_SET);
-#if INC_ENCRYPTION
+	_fseeki64(hHeaderFile, Version != VC_IMG ? 8 : 0, SEEK_SET);
+#if defined INC_ENCRYPTION
 	if ( Version == VCSPC_IMG )
 		blowFish.Encrypt((unsigned char*)header, sizeof(CIMGHeader) * dwTotalFiles, CBlowFish::CBC);
 #endif
 	fwrite(header, sizeof(CIMGHeader), dwTotalFiles, hHeaderFile);
 	delete[] header;
 
-	fseek(hFile, 0, SEEK_END);
-	DWORD	dwWhereAmI = ftell(hFile);
+	_fseeki64(hFile, 0, SEEK_END);
+	uint32_t	dwWhereAmI = ftell(hFile);
 	if ( dwWhereAmI % 2048 )
 	{
-		BYTE buf = 0;
-		fseek(hFile, 2047 - (dwWhereAmI % 2048), SEEK_CUR);
+		uint8_t buf = 0;
+		_fseeki64(hFile, 2047 - (dwWhereAmI % 2048), SEEK_CUR);
 		fwrite(&buf, 1, 1, hFile);
 	}
 
-#if INC_ENCRYPTION
+#if defined INC_ENCRYPTION
 	if ( Version == VCSPC_IMG )
 	{
-		WORD	wBytesToWrite = 2048 - ( (sizeof(CIMGHeader) * dwTotalFiles) % 2048);
-		BYTE*	garbageData = new BYTE[wBytesToWrite];
+		size_t	wBytesToWrite = 2048 - ( (sizeof(CIMGHeader) * dwTotalFiles) % 2048);
+		uint8_t*	garbageData = new uint8_t[wBytesToWrite];
 		memset(garbageData, 0xCC, wBytesToWrite);
 		blowFish.ResetChain();
 		blowFish.Encrypt(garbageData, wBytesToWrite, CBlowFish::CBC);
@@ -332,10 +335,8 @@ void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>&
 #endif
 }
 
-int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
+int wmain( int argc, wchar_t *argv[] )
 {
-	UNREFERENCED_PARAMETER(envp);
-
 	std::ios_base::sync_with_stdio(false);
 	std::cout << "Native IMG Builder 1.5 by Silent\n\n";
 
@@ -362,7 +363,7 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 		if ( !strIniPath.empty() )
 			SetCurrentDirectory(strIniPath.c_str());
 		
-		BYTE IMGVersion = ParseINIFile( strIniName, INIEntries );
+		uint8_t IMGVersion = ParseINIFile( strIniName, INIEntries );
 
 		std::cout << "Found " << INIEntries.size() << " files in total.\n";
 
