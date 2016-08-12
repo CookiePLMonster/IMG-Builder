@@ -146,7 +146,7 @@ void cINIEntry::WriteEntryToIMGFile(FILE* hFile, DWORD& headerLoopCtr, DWORD& pD
 	
 		header[headerLoopCtr].WriteEntry(pDataPos, wSizeToWrite, strFileName.c_str());
 	
-		if ( !pMalloc )
+		if ( pMalloc == nullptr )
 			pMalloc = operator new(nBiggestFile);
 	
 		fread(pMalloc, nFileSize, 1, hFileToBePacked);
@@ -195,7 +195,7 @@ BYTE ParseINIFile( std::wstring& iniName, std::vector<cINIEntry>& vecSpace )
 			IMGVer = SA_IMG;
 		}
 #if defined INC_ENCRYPTION
-		else if ( strVersion == L"newimg" )
+		else if ( strVersion == L"encimg" )
 		{
 			std::cout << "Using v2 IMG with Encryption...\n";
 			IMGVer = VCSPC_IMG;
@@ -221,75 +221,6 @@ BYTE ParseINIFile( std::wstring& iniName, std::vector<cINIEntry>& vecSpace )
 		FindFilesInDir(vecSpace, strTempFile.c_str() );
 		SetCurrentDirectory( wcCurrentDir );
 	}
-
-	/*while ( fgets(cFileLine, MAX_PATH, hFile) )
-	{
-		if ( cFileLine[0] == ';' || cFileLine[0] == '\n' )
-			continue;
-
-		if ( !bIsVersionGet )
-		{
-			bIsVersionGet = true;
-			if ( !strncmp(cFileLine, "version", 7) )
-			{
-				const char* pStrtok = strtok(cFileLine, " \n =");
-				pStrtok = strtok(NULL, " \n =");
-#if defined INC_ENCRYPTION
-				if ( strncmp(pStrtok, "ENCIMG", 6) )
-				{
-					if ( strncmp(pStrtok, "NEWIMG", 6) )
-					{
-						if ( strncmp(pStrtok, "OLDIMG", 6) )
-						{
-							std::cout << "Unknown IMG version specified, using v2 IMG...\n";
-							IMGVer = SA_IMG;
-						}
-						else
-						{
-							std::cout << "Using v1 IMG...\n";
-							IMGVer = VC_IMG;
-						}
-					}
-					else
-					{
-						std::cout << "Using v2 IMG...\n";
-						IMGVer = SA_IMG;
-					}
-				}
-				else
-				{
-					std::cout << "Using v2 IMG with Encryption...\n";
-					IMGVer = VCSPC_IMG;
-				}
-#else
-				if ( strncmp(pStrtok, "NEWIMG", 6) )
-				{
-					if ( strncmp(pStrtok, "OLDIMG", 6) )
-					{
-						std::cout << "Unknown IMG version specified, using v2 IMG...\n";
-						IMGVer = SA_IMG;
-					}
-					else
-					{
-						std::cout << "Using v1 IMG...\n";
-						IMGVer = VC_IMG;
-					}
-				}
-				else
-				{
-					std::cout << "Using v2 IMG...\n";
-					IMGVer = SA_IMG;
-				}
-#endif
-				continue;
-			}
-		}
-		const char* pStrtok = strtok(cFileLine, " \n");
-
-		SetCurrentDirectoryA(pStrtok);
-		FindFilesInDir(vecSpace, pStrtok);
-		SetCurrentDirectory(wcCurrentDir);
-	}*/
 
 	return IMGVer;
 }
@@ -351,7 +282,6 @@ void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>&
 		if ( Version == VCSPC_IMG )
 			blowFish.Encrypt((unsigned char*)fileHeader, 8, CBlowFish::ECB);
 #endif
-//		fputs("VER2", hFile);
 		fwrite(fileHeader, 8, 1, hFile);
 
 #ifdef INC_ENCRYPTION
@@ -400,16 +330,6 @@ void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>&
 		delete[] garbageData;
 	}
 #endif
-}
-
-bool FileExists(const char* pFileName)
-{
-	if ( FILE* hFile = fopen(pFileName, "r") )
-	{
-		fclose(hFile);
-		return true;
-	}
-	return false;
 }
 
 int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
