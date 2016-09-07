@@ -340,11 +340,14 @@ int wmain( int argc, wchar_t *argv[] )
 	std::ios_base::sync_with_stdio(false);
 	std::cout << "Native IMG Builder 1.5 by Silent\n\n";
 
+	if ( argc < 2 || std::wstring( argv[1] ) == L"--help" )
+	{
+		std::cout << "Usage:\timgbuilder.exe path\\to\\ini.ini [path\\to\\output\\directory]\n\timgbuilder.exe --help - displays this help message\n\nPlease refer to doc\\example.ini for an example of input INI file\n";
+		return 0;
+	}
+
 	try
 	{
-		if ( argc < 2 )
-			throw "Specify the INI file!\n";
-
 		// INI path
 		std::wstring				strIniPath = MakeIniPath(argv[1]);
 		
