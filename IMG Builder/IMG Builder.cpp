@@ -2,9 +2,6 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <direct.h>
-#if defined INC_ENCRYPTION
-#include "BlowFish\Blowfish.h"
-#endif
 
 #define MAKEFOURCC(ch0, ch1, ch2, ch3)                 ((DWORD)(BYTE)(ch0) | ((DWORD)(BYTE)(ch1) << 8) | ((DWORD)(BYTE)(ch2) << 16) | ((DWORD)(BYTE)(ch3) << 24 )) 
 
@@ -15,11 +12,14 @@
 #include <Shlwapi.h>
 #include <memory>
 
+#ifndef UNICODE
+#error IMG Builder must be compiled with Unicode character set
+#endif
+
 enum
 {
 	VC_IMG,
-	SA_IMG,
-	VCSPC_IMG
+	SA_IMG
 };
 
 class CIMGHeader
@@ -90,21 +90,6 @@ public:
 
 size_t	cINIEntry::nBiggestFile;
 void*	cINIEntry::pMalloc;
-
-static unsigned char		bKeyVersion = 0;
-
-void StrPathAppend(std::wstring& pszPath, const wchar_t* pszMore)
-{
-	if ( !pszPath.empty() )
-	{
-		if ( pszPath.back() != '\\' && pszPath.back() != '/' )
-			pszPath.push_back('\\');
-		pszPath += pszMore;
-	}
-	else
-		pszPath = pszMore;
-}
-
 
 void FindFilesInDir(std::vector<cINIEntry>& vecSpace, const wchar_t* pDirName)
 {
@@ -197,13 +182,6 @@ uint8_t ParseINIFile( std::wstring& iniName, std::vector<cINIEntry>& vecSpace )
 			std::cout << "Using v2 IMG...\n";
 			IMGVer = SA_IMG;
 		}
-#if defined INC_ENCRYPTION
-		else if ( strVersion == L"encimg" )
-		{
-			std::cout << "Using v2 IMG with Encryption...\n";
-			IMGVer = VCSPC_IMG;
-		}
-#endif
 	}
 
 	// Read all files list
@@ -265,31 +243,14 @@ void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>&
 	size_t			dwCurrentDataPos;
 	size_t			dwTotalFiles = pVector.size();
 
-#if defined INC_ENCRYPTION
-	unsigned char	encKey[24] = {	0x81, 0x45, 0x26, 0xFA, 0xDA, 0x7C, 0x6C, 0x11,
-										0x86, 0x93, 0xCC, 0x90, 0x2B, 0xB7, 0xE2, 0x32,
-										0x10, 0x0F, 0x56, 0x9B, 0x02, 0x8A, 0x6C, 0x5F };
-
-	unsigned char	dlc2key[24] = {	124, 216, 71, 196, 191, 42, 230, 227, 164, 92,
-										149, 92, 214, 126, 96, 45, 11, 97, 63, 217, 62, 171, 41, 221 };
-	CBlowFish	blowFish(bKeyVersion == 1 ? dlc2key : encKey, 24);
-#endif
-
 	if ( Version != VC_IMG )
 	{
 		uint32_t fileHeader[2];
 		fileHeader[0] = MAKEFOURCC('V', 'E', 'R', '2');
 		fileHeader[1] = static_cast<uint32_t>(dwTotalFiles);
 
-#if defined INC_ENCRYPTION
-		if ( Version == VCSPC_IMG )
-			blowFish.Encrypt((unsigned char*)fileHeader, 8, CBlowFish::ECB);
-#endif
 		fwrite(fileHeader, 8, 1, hFile);
 
-#if defined INC_ENCRYPTION
-		blowFish.ResetChain();
-#endif
 		dwCurrentDataPos = (8 + 32 * dwTotalFiles) / 2048 + ((8 + 32 * dwTotalFiles) % 2048 != 0);
 		_fseeki64(hFile, dwCurrentDataPos * 2048, SEEK_SET);
 		hHeaderFile = hFile;
@@ -303,10 +264,6 @@ void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>&
 		it.WriteEntryToIMGFile(hFile, dwHeaderEntriesCounter++, dwCurrentDataPos, header);
 
 	_fseeki64(hHeaderFile, Version != VC_IMG ? 8 : 0, SEEK_SET);
-#if defined INC_ENCRYPTION
-	if ( Version == VCSPC_IMG )
-		blowFish.Encrypt((unsigned char*)header, sizeof(CIMGHeader) * dwTotalFiles, CBlowFish::CBC);
-#endif
 	fwrite(header, sizeof(CIMGHeader), dwTotalFiles, hHeaderFile);
 	delete[] header;
 
@@ -318,21 +275,6 @@ void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>&
 		_fseeki64(hFile, 2047 - (dwWhereAmI % 2048), SEEK_CUR);
 		fwrite(&buf, 1, 1, hFile);
 	}
-
-#if defined INC_ENCRYPTION
-	if ( Version == VCSPC_IMG )
-	{
-		size_t	wBytesToWrite = 2048 - ( (sizeof(CIMGHeader) * dwTotalFiles) % 2048);
-		uint8_t*	garbageData = new uint8_t[wBytesToWrite];
-		memset(garbageData, 0xCC, wBytesToWrite);
-		blowFish.ResetChain();
-		blowFish.Encrypt(garbageData, wBytesToWrite, CBlowFish::CBC);
-
-		fwrite(garbageData, wBytesToWrite, 1, hHeaderFile);
-
-		delete[] garbageData;
-	}
-#endif
 }
 
 int wmain( int argc, wchar_t *argv[] )
@@ -359,9 +301,6 @@ int wmain( int argc, wchar_t *argv[] )
 		std::wstring				strHeaderFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".dir");
 
 		cINIEntry::Init();
-
-		if ( strOutputFileName.find(L"dlc2") != std::wstring::npos )
-			bKeyVersion = 1;
 
 		if ( !strIniPath.empty() )
 			SetCurrentDirectory(strIniPath.c_str());
