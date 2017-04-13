@@ -134,12 +134,25 @@ public:
 
 		for ( size_t i = 0, j = m_headerData.size(); i < j; i++ )
 		{
-			DWORD bytesRead = 0;
-			HANDLE fileToWrite = CreateFile( m_files[i].m_fullPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr );
-			if ( ReadFile( fileToWrite, buffer, static_cast<DWORD>(m_files[i].m_fileSize), &bytesRead, nullptr ) == FALSE )
+			HANDLE fileToWrite = CreateFile( m_files[i].m_fullPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED | FILE_FLAG_SEQUENTIAL_SCAN, nullptr );
+			OVERLAPPED ovRead = { 0 };		
+			if ( ReadFile( fileToWrite, buffer, static_cast<DWORD>(m_files[i].m_fileSize), nullptr, &ovRead ) == FALSE )
 			{
-				throw std::runtime_error( "Failed to read the file" );
+				if ( GetLastError() != ERROR_IO_PENDING )
+				{
+					throw std::runtime_error( "Failed to read the file" );
+				}
+
+				std::wcout << m_headerData[i].name << '\n';
+
+				DWORD bytesRead = 0;
+				GetOverlappedResult( imgFile, &ovRead, &bytesRead, TRUE );
 			}
+			else
+			{
+				std::wcout << m_headerData[i].name << '\n';
+			}
+			CloseHandle(fileToWrite);
 
 			ULARGE_INTEGER fileOffset;
 			OVERLAPPED ov = { 0 };
@@ -152,16 +165,9 @@ public:
 				{
 					throw std::runtime_error( "Failed to write to IMG" );
 				}
-				std::wcout << m_headerData[i].name << '\n';
-				CloseHandle(fileToWrite);
-
+				
 				DWORD bytesWritten = 0;
 				GetOverlappedResult( imgFile, &ov, &bytesWritten, TRUE );
-			}
-			else
-			{
-				std::wcout << m_headerData[i].name << '\n';
-				CloseHandle(fileToWrite);
 			}
 		}
 		CloseHandle(imgFile);
