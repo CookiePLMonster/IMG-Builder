@@ -1,18 +1,11 @@
 #define WIN32_LEAN_AND_MEAN
-#define _CRT_SECURE_NO_WARNINGS
 #define NOMINMAX
-#include <stdio.h>
-#include <direct.h>
-
-#define MAKEFOURCC(ch0, ch1, ch2, ch3)                 ((DWORD)(BYTE)(ch0) | ((DWORD)(BYTE)(ch1) << 8) | ((DWORD)(BYTE)(ch2) << 16) | ((DWORD)(BYTE)(ch3) << 24 )) 
 
 #include <windows.h>
+#include <cstdint>
 #include <iostream>
 #include <vector>
-#include <string>
 #include <Shlwapi.h>
-#include <memory>
-#include <limits>
 #include <strsafe.h>
 
 #include "DelimStringReader.h"
@@ -21,6 +14,11 @@
 #ifndef UNICODE
 #error IMG Builder must be compiled with Unicode character set
 #endif
+
+static uint32_t MakeFourCC( char A, char B, char C, char D )
+{
+	return uint32_t( A | (B << 8) | (C << 16) | (D << 24) );
+}
 
 enum IMGVersion
 {
@@ -127,7 +125,7 @@ public:
 	void BuildIMG( const std::wstring& imgName, const std::wstring& dirName )
 	{
 		uint64_t numTotalBlocks = BuildHeaderData();
-		uint8_t* buffer = new uint8_t[m_biggestFile];
+		uint8_t* buffer = new uint8_t[static_cast<size_t>(m_biggestFile)];
 
 		HANDLE imgFile, dirFile;
 
@@ -172,7 +170,7 @@ public:
 		if ( m_version == SA_IMG )
 		{
 			uint32_t fileHeader[2];
-			fileHeader[0] = MAKEFOURCC('V', 'E', 'R', '2');
+			fileHeader[0] = MakeFourCC('V', 'E', 'R', '2');
 			fileHeader[1] = static_cast<uint32_t>(m_headerData.size());
 			WriteFile( dirFile, fileHeader, sizeof(fileHeader), &bytesWritten, nullptr );
 		}
