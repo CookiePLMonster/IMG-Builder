@@ -320,7 +320,7 @@ int wmain( int argc, wchar_t *argv[] )
 
 	ptrdiff_t firstArg = 1;
 
-	for ( wchar_t** arg = argv+1; arg != nullptr; arg++ )
+	for ( wchar_t** arg = argv+1; *arg != nullptr; arg++ )
 	{
 		if ( (*arg)[0] != '-' ) break;
 
@@ -338,6 +338,12 @@ int wmain( int argc, wchar_t *argv[] )
 		}
 
 		firstArg++;
+	}
+
+	if ( firstArg >= argc )
+	{
+		std::wcout << HelpText;
+		return 0;
 	}
 
 	try
