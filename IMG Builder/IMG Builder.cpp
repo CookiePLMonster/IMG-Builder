@@ -51,6 +51,9 @@ static const uint64_t IMG_BLOCK_SIZE = 2048;
 static const uint64_t MAX_IMG_FILE_SIZE = std::numeric_limits<IMGHeaderEntry::size_type>::max() * IMG_BLOCK_SIZE;
 static const uint64_t MAX_IMG_FILE_OFFSET =  std::numeric_limits<IMGHeaderEntry::offset_type>::max() * IMG_BLOCK_SIZE;
 
+// Global switches
+static bool switch_verbose = false;
+
 struct INIEntry
 {
 	std::wstring	m_fullPath;
@@ -91,12 +94,12 @@ public:
 			{
 				if ( _wcsicmp( buf, L"oldimg" ) == 0 )
 				{
-					std::wcout << L"Using v1 IMG...\n";
+					if ( switch_verbose ) std::wcout << L"Using v1 IMG...\n";
 					m_version = VC_IMG;
 				}
 				else if ( _wcsicmp( buf, L"newimg" ) == 0 )
 				{
-					std::wcout << L"Using v2 IMG...\n";
+					if ( switch_verbose ) std::wcout << L"Using v2 IMG...\n";
 					m_version = SA_IMG;
 				}
 			}
@@ -143,14 +146,14 @@ public:
 					throw std::runtime_error( "Failed to read the file" );
 				}
 
-				std::wcout << m_headerData[i].name << '\n';
+				if ( switch_verbose ) std::wcout << m_headerData[i].name << '\n';
 
 				DWORD bytesRead = 0;
 				GetOverlappedResult( imgFile, &ovRead, &bytesRead, TRUE );
 			}
 			else
 			{
-				std::wcout << m_headerData[i].name << '\n';
+				if ( switch_verbose ) std::wcout << m_headerData[i].name << '\n';
 			}
 			CloseHandle(fileToWrite);
 
@@ -305,24 +308,45 @@ std::wstring MakeIniName(const std::wstring& strFullIniPath)
 	return strFullIniPath;
 }
 
+const wchar_t* const HelpText = L"Usage:"
+					L"\timgbuilder.exe path\\to\\ini.ini [path\\to\\output\\directory]\n"
+					L"\timgbuilder.exe --help - displays this help message\n\n"
+					L"Please refer to doc\\example.ini for an example of input INI file\n";
+
 int wmain( int argc, wchar_t *argv[] )
 {
 	std::ios_base::sync_with_stdio(false);
-	std::cout << "Native IMG Builder 2.0 by Silent\n\n";
+	std::wcout << L"Native IMG Builder 2.0 by Silent\n\n";
 
-	if ( argc < 2 || std::wstring( argv[1] ) == L"--help" )
+	ptrdiff_t firstArg = 1;
+
+	for ( wchar_t** arg = argv+1; arg != nullptr; arg++ )
 	{
-		std::cout << "Usage:\timgbuilder.exe path\\to\\ini.ini [path\\to\\output\\directory]\n\timgbuilder.exe --help - displays this help message\n\nPlease refer to doc\\example.ini for an example of input INI file\n";
-		return 0;
+		if ( (*arg)[0] != '-' ) break;
+
+		std::wstring argument = std::wstring( *arg );
+
+		if ( argument == L"--help" )
+		{
+			std::wcout << HelpText;
+			return 0;
+		}
+
+		if ( argument == L"--verbose" )
+		{
+			switch_verbose = true;
+		}
+
+		firstArg++;
 	}
 
 	try
 	{
-		std::wstring				strIniPath = MakeIniPath(argv[1]);
-		std::wstring				strIniName = MakeIniName(argv[1]);
+		std::wstring				strIniPath = MakeIniPath(argv[firstArg]);
+		std::wstring				strIniName = MakeIniName(argv[firstArg]);
 
-		std::wstring				strOutputFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".img");
-		std::wstring				strHeaderFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".dir");
+		std::wstring				strOutputFileName = MakeFullFilePath(argc > firstArg+1 ? argv[firstArg+1] : strIniPath, strIniName, L".img");
+		std::wstring				strHeaderFileName = MakeFullFilePath(argc > firstArg+1 ? argv[firstArg+1] : strIniPath, strIniName, L".dir");
 
 		if ( !strIniPath.empty() )
 			SetCurrentDirectory(strIniPath.c_str());
@@ -331,7 +355,7 @@ int wmain( int argc, wchar_t *argv[] )
 
 		img.ReadINI( strIniName );
 
-		std::cout << "Found " << img.GetNumFiles() << " files in total.\n";
+		std::wcout << L"Found " << img.GetNumFiles() << L" files in total.\n";
 
 		img.BuildIMG( strOutputFileName, strHeaderFileName );
 	}
