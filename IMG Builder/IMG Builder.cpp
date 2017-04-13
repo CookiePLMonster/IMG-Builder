@@ -136,7 +136,10 @@ public:
 		{
 			DWORD bytesRead = 0;
 			HANDLE fileToWrite = CreateFile( m_files[i].m_fullPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr );
-			ReadFile( fileToWrite, buffer, static_cast<DWORD>(m_files[i].m_fileSize), &bytesRead, nullptr );
+			if ( ReadFile( fileToWrite, buffer, static_cast<DWORD>(m_files[i].m_fileSize), &bytesRead, nullptr ) == FALSE )
+			{
+				throw std::runtime_error( "Failed to read the file" );
+			}
 
 			ULARGE_INTEGER fileOffset;
 			OVERLAPPED ov = { 0 };
