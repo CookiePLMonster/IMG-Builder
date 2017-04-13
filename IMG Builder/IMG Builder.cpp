@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #define _CRT_SECURE_NO_WARNINGS
+#define NOMINMAX
 #include <stdio.h>
 #include <direct.h>
 
@@ -11,200 +12,265 @@
 #include <string>
 #include <Shlwapi.h>
 #include <memory>
+#include <limits>
+#include <strsafe.h>
+
+#include "DelimStringReader.h"
+#include "Exceptions.hpp"
 
 #ifndef UNICODE
 #error IMG Builder must be compiled with Unicode character set
 #endif
 
-enum
+enum IMGVersion
 {
 	VC_IMG,
 	SA_IMG
 };
 
-class CIMGHeader
+struct IMGHeaderEntry
 {
-private:
 	static const size_t	IMG_NAME_LENGTH = 24;
 
-	uint32_t	fileOffset;
-	uint16_t	sizeFirstPriority;
-	uint16_t	sizeSecondPriority;
+	typedef uint32_t offset_type;
+	typedef uint16_t size_type;
+
+
+	offset_type	fileOffset;
+	size_type	streamedSize;
+	size_type	compressedSize;
 	char		name[IMG_NAME_LENGTH];
 
-public:
-	void	WriteEntry(uint32_t fOff, uint16_t sizeFPriority, const char* pName)
+	IMGHeaderEntry( uint64_t offset, uint64_t size, const char* fname )
+		: fileOffset( offset_type(offset) ), streamedSize( size_type(size) ), compressedSize(0)
 	{
-		fileOffset = fOff;
-		sizeFirstPriority = sizeFPriority;
-		sizeSecondPriority = 0;
-		strncpy( name, pName, IMG_NAME_LENGTH-1 );
-		name[IMG_NAME_LENGTH-1] = '\0';
+		StringCbCopyNExA( name, sizeof(name), fname, IMG_NAME_LENGTH, nullptr, nullptr, STRSAFE_FILL_BEHIND_NULL );
 	}
 
 };
 
-class cINIEntry
+static const uint64_t IMG_BLOCK_SIZE = 2048;
+static const uint64_t MAX_IMG_FILE_SIZE = std::numeric_limits<IMGHeaderEntry::size_type>::max() * IMG_BLOCK_SIZE;
+static const uint64_t MAX_IMG_FILE_OFFSET =  std::numeric_limits<IMGHeaderEntry::offset_type>::max() * IMG_BLOCK_SIZE;
+
+struct INIEntry
 {
-private:
-	std::wstring	strFullPath;
-	std::string		strFileName;
-	size_t			nFileSize;
+	std::wstring	m_fullPath;
+	std::string		m_fileName;
+	uint64_t		m_fileSize;
 
-	static size_t	nBiggestFile;
-	static void*	pMalloc;
+	INIEntry( std::wstring fileName, std::wstring fullPath, uint64_t size )
+		: m_fileName( fileName.cbegin(), fileName.cend() ), m_fullPath( std::move(fullPath) ), m_fileSize( size )
+	{	
+	}
+};
 
+class IMGBuild
+{
 public:
-	cINIEntry(const WIN32_FIND_DATA& FindData)
+	IMGBuild()
+		: m_biggestFile(0), m_version(SA_IMG)
 	{
-		// Get filename
-		std::wstring strWideName = FindData.cFileName;
-		strFileName = std::string(strWideName.cbegin(), strWideName.cend());
+	}
+
+	void ReadINI( std::wstring fileName )
+	{
+		const size_t SCRATCH_PAD_SIZE = 32767;
+		WideDelimStringReader reader( SCRATCH_PAD_SIZE );
+
+		// Add .\ if path is relative
+		if ( PathIsRelative( fileName.c_str() ) != FALSE )
+		{
+			fileName.insert( 0, L".\\" );
+		}
+
+		// Get attributes
+		{
+			GetPrivateProfileString( L"Attribs", L"version", nullptr, reader.GetBuffer(), static_cast<DWORD>(reader.GetSize()), fileName.c_str() );
+
+			wchar_t* buf = reader.GetBuffer();
+			if ( buf[0] != '\0' )
+			{
+				if ( _wcsicmp( buf, L"oldimg" ) == 0 )
+				{
+					std::wcout << L"Using v1 IMG...\n";
+					m_version = VC_IMG;
+				}
+				else if ( _wcsicmp( buf, L"newimg" ) == 0 )
+				{
+					std::wcout << L"Using v2 IMG...\n";
+					m_version = SA_IMG;
+				}
+			}
+		}
+
+		// Read all files list
+		{
+			reader.Reset();
+			GetPrivateProfileSection( L"Dirs", reader.GetBuffer(), static_cast<DWORD>(reader.GetSize()), fileName.c_str() );
+
+			wchar_t			wcCurrentDir[MAX_PATH];
+			GetCurrentDirectory(MAX_PATH, wcCurrentDir);
+
+			while ( const wchar_t* line = reader.GetString() )
+			{
+				SetCurrentDirectory( line );
+				uint32_t foundFiles = FindFilesInDir( );
+				SetCurrentDirectory( wcCurrentDir );
+
+				std::wcout << foundFiles << L" files in " << line << L" listed\n";
+			}
+		}
+	
+	}
+
+	void BuildIMG( const std::wstring& imgName, const std::wstring& dirName )
+	{
+		uint64_t numTotalBlocks = BuildHeaderData();
+		uint8_t* buffer = new uint8_t[m_biggestFile];
+
+		HANDLE imgFile, dirFile;
+
+		imgFile = CreateFile( imgName.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED | FILE_FLAG_RANDOM_ACCESS, nullptr );
+		PreExtendFile( imgFile, numTotalBlocks );
+
+		for ( size_t i = 0, j = m_headerData.size(); i < j; i++ )
+		{
+			DWORD bytesRead = 0;
+			HANDLE fileToWrite = CreateFile( m_files[i].m_fullPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr );
+			ReadFile( fileToWrite, buffer, static_cast<DWORD>(m_files[i].m_fileSize), &bytesRead, nullptr );
+
+			ULARGE_INTEGER fileOffset;
+			OVERLAPPED ov = { 0 };
+			fileOffset.QuadPart = m_headerData[i].fileOffset * IMG_BLOCK_SIZE;
+			ov.Offset = fileOffset.LowPart;
+			ov.OffsetHigh = fileOffset.HighPart;
+			if ( WriteFile( imgFile, buffer, static_cast<DWORD>(m_files[i].m_fileSize), nullptr, &ov ) == FALSE )
+			{
+				if ( GetLastError() != ERROR_IO_PENDING )
+				{
+					throw std::runtime_error( "Failed to write to IMG" );
+				}
+				std::wcout << m_headerData[i].name << '\n';
+				CloseHandle(fileToWrite);
+
+				DWORD bytesWritten = 0;
+				GetOverlappedResult( imgFile, &ov, &bytesWritten, TRUE );
+			}
+			else
+			{
+				std::wcout << m_headerData[i].name << '\n';
+				CloseHandle(fileToWrite);
+			}
+		}
+		CloseHandle(imgFile);
+		delete[] buffer;
+
+		dirFile = CreateFile( m_version == SA_IMG ? imgName.c_str() : dirName.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr );
+
+		DWORD bytesWritten = 0;
+		if ( m_version == SA_IMG )
+		{
+			uint32_t fileHeader[2];
+			fileHeader[0] = MAKEFOURCC('V', 'E', 'R', '2');
+			fileHeader[1] = static_cast<uint32_t>(m_headerData.size());
+			WriteFile( dirFile, fileHeader, sizeof(fileHeader), &bytesWritten, nullptr );
+		}
+		WriteFile( dirFile, m_headerData.data(), static_cast<DWORD>(m_headerData.size() * sizeof(decltype(m_headerData)::value_type)), &bytesWritten, nullptr );
+
+		CloseHandle(dirFile);
+	}
+
+	inline size_t GetNumFiles() const { return m_files.size(); }
+
+private:
+	void PreExtendFile( HANDLE handle, uint64_t sizeInBlocks )
+	{
+		LARGE_INTEGER offset;
+		offset.QuadPart = sizeInBlocks * IMG_BLOCK_SIZE;
+		SetFilePointerEx( handle, offset, nullptr, FILE_BEGIN );
+		SetEndOfFile( handle );
+	}
+
+	uint64_t BuildHeaderData()
+	{
+		m_headerData.reserve( m_files.size() );
+
+		uint64_t curBlockOffset;
+
+		if ( m_version == SA_IMG )
+		{
+			uint64_t totalHeaderSize = 8 + m_files.size() * sizeof(IMGHeaderEntry);
+			totalHeaderSize = (totalHeaderSize + IMG_BLOCK_SIZE - 1) & ~(IMG_BLOCK_SIZE - 1); // Round up to block size
+
+			curBlockOffset = totalHeaderSize / IMG_BLOCK_SIZE;
+		}
+		else
+		{
+			curBlockOffset = 0;
+		}
 		
-		// Get full path
+		for ( auto& it : m_files )
+		{
+			uint64_t fileSize = (it.m_fileSize + IMG_BLOCK_SIZE - 1) & ~(IMG_BLOCK_SIZE - 1); // Round up to block size
+			uint64_t fileSizeBlocks = fileSize / IMG_BLOCK_SIZE;
+			m_headerData.emplace_back( curBlockOffset, fileSizeBlocks, it.m_fileName.c_str() );
+
+			curBlockOffset += fileSizeBlocks;
+		}
+		return curBlockOffset;
+	}
+
+	void AddFile( const WIN32_FIND_DATA& FindData )
+	{
 		wchar_t			wcFullPath[MAX_PATH];
 		GetCurrentDirectory(MAX_PATH, wcFullPath);
 		PathAppend(wcFullPath, FindData.cFileName);
-		strFullPath = wcFullPath;
 
-		// Get file size (up to 4GB)
-		nFileSize = FindData.nFileSizeLow;
+		ULARGE_INTEGER fileSize;
+		fileSize.LowPart = FindData.nFileSizeLow;
+		fileSize.HighPart = FindData.nFileSizeHigh;
 
-		if ( nFileSize > nBiggestFile )
-			nBiggestFile = nFileSize;
+		if ( fileSize.QuadPart > MAX_IMG_FILE_SIZE )
+			throw FileSizeException( FindData.cFileName );
+
+		m_files.emplace_back( FindData.cFileName, wcFullPath, fileSize.QuadPart );
+
+		if ( fileSize.QuadPart > m_biggestFile )
+			m_biggestFile = fileSize.QuadPart;
 	}
 
-	void			WriteEntryToIMGFile(FILE* hFile, size_t headerLoopCtr, size_t& pDataPos, CIMGHeader* header) const;
-
-	static void		Init()
+	uint32_t FindFilesInDir( )
 	{
-		pMalloc = nullptr;
-		nBiggestFile = 0;
-	}
+		WIN32_FIND_DATA	FileData;
+		unsigned int	foundFiles = 0;
 
-	static void		DeInit()
-	{
-		operator delete(pMalloc);
-	}
-};
+		HANDLE			hSearch = FindFirstFile(L"*", &FileData);
 
-size_t	cINIEntry::nBiggestFile;
-void*	cINIEntry::pMalloc;
-
-void FindFilesInDir(std::vector<cINIEntry>& vecSpace, const wchar_t* pDirName)
-{
-	WIN32_FIND_DATA	FileData;
-	unsigned int	nFoundFiles = 0;
-
-	HANDLE			hSearch = FindFirstFile(L"*", &FileData);
-
-	if ( hSearch != INVALID_HANDLE_VALUE )
-	{
-		std::wcout << L"Parsing files from " << pDirName << L" directory...\n";
-
-		do
+		if ( hSearch != INVALID_HANDLE_VALUE )
 		{
-			if ( !(FileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
+			do
 			{
-				++nFoundFiles;
-
-				vecSpace.push_back(FileData);
+				if ( !(FileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
+				{
+					foundFiles++;
+					AddFile( FileData );
+				}
 			}
+			while ( FindNextFile(hSearch, &FileData) );
+
+			FindClose(hSearch);
 		}
-		while ( FindNextFile(hSearch, &FileData) );
-
-		FindClose(hSearch);
-	}
-	else
-		throw L"Can't access files in " + std::wstring(pDirName) + L'!';
-
-	std::cout << " Found " << nFoundFiles << " files\n\n";
-}
-
-
-void cINIEntry::WriteEntryToIMGFile(FILE* hFile, size_t headerLoopCtr, size_t& pDataPos, CIMGHeader* header) const
-{
-	std::cout << strFileName.c_str() << '\n';
-	
-	if ( FILE* hFileToBePacked = _wfopen(strFullPath.c_str(), L"rb") )
-	{
-		uint16_t wSizeToWrite = static_cast<uint16_t>( ((nFileSize + 2048 - 1) & ~(2048 - 1)) / 2048 );
-	
-		header[headerLoopCtr].WriteEntry(static_cast<uint32_t>(pDataPos), wSizeToWrite, strFileName.c_str());
-	
-		if ( pMalloc == nullptr )
-			pMalloc = operator new(nBiggestFile);
-	
-		fread(pMalloc, nFileSize, 1, hFileToBePacked);
-		fwrite(pMalloc, nFileSize, 1, hFile);
-		fclose(hFileToBePacked);
-	
-		++headerLoopCtr;
-		_fseeki64(hFile, wSizeToWrite * 2048 - nFileSize, SEEK_CUR);
-		pDataPos += wSizeToWrite;
-	}
-	else
-		throw "Error opening file " + strFileName + '!';
-}
-
-uint8_t ParseINIFile( std::wstring& iniName, std::vector<cINIEntry>& vecSpace )
-{
-	const size_t SCRATCH_PAD_SIZE = 32767;
-
-	std::wstring strFileName = iniName;
-	std::unique_ptr< wchar_t[] > scratch( new wchar_t[ SCRATCH_PAD_SIZE ] );
-	uint8_t		IMGVer = SA_IMG;
-
-	// Add .\ if path is relative
-	if ( PathIsRelative( strFileName.c_str() ) != FALSE )
-	{
-		strFileName.insert( 0, L".\\" );
+		return foundFiles;
 	}
 
-	wchar_t			wcCurrentDir[MAX_PATH];
-	GetCurrentDirectory(MAX_PATH, wcCurrentDir);
+private:
+	std::vector<INIEntry> m_files;
+	std::vector<IMGHeaderEntry> m_headerData;
 
-	// Get attributes
-	GetPrivateProfileString( L"Attribs", L"version", nullptr, scratch.get(), SCRATCH_PAD_SIZE, strFileName.c_str() );
-	if ( scratch[0] != '\0' )
-	{
-		std::wstring strVersion = scratch.get();
-		for ( auto& ch : strVersion )
-			ch = towlower( ch );
-
-		if ( strVersion == L"oldimg" )
-		{
-			std::cout << "Using v1 IMG...\n";
-			IMGVer = VC_IMG;
-		}
-		else if ( strVersion == L"newimg" )
-		{
-			std::cout << "Using v2 IMG...\n";
-			IMGVer = SA_IMG;
-		}
-	}
-
-	// Read all files list
-	GetPrivateProfileSection( L"Dirs", scratch.get(), SCRATCH_PAD_SIZE, strFileName.c_str() );
-
-	for( wchar_t* raw = scratch.get(); *raw != '\0'; ++raw )
-	{
-		// Construct a std::wstring with the line
-		std::wstring strTempFile;
-		do
-		{
-			strTempFile.push_back( *raw );
-			raw++;
-		}
-		while ( *raw != '\0' );
-
-		SetCurrentDirectory( strTempFile.c_str() );
-		FindFilesInDir(vecSpace, strTempFile.c_str() );
-		SetCurrentDirectory( wcCurrentDir );
-	}
-
-	return IMGVer;
-}
+	IMGVersion m_version;
+	uint64_t m_biggestFile;
+};
 
 std::wstring MakeFullFilePath(const std::wstring& strIniPath, const std::wstring& strIniName, const wchar_t* pExtension)
 {
@@ -216,71 +282,26 @@ std::wstring MakeFullFilePath(const std::wstring& strIniPath, const std::wstring
 
 std::wstring MakeIniPath(const std::wstring& strFullIniPath)
 {
-	auto	slashPos = strFullIniPath.find_last_of(L"/\\");
+	std::wstring::size_type	slashPos = strFullIniPath.find_last_of(L"/\\");
 	if ( slashPos == std::wstring::npos )
-		slashPos = 0;
+		return L"";
 
 	return strFullIniPath.substr(0, slashPos);
 }
 
 std::wstring MakeIniName(const std::wstring& strFullIniPath)
 {
-	auto slashPos = strFullIniPath.find_last_of(L"/\\");
-
+	std::wstring::size_type slashPos = strFullIniPath.find_last_of(L"/\\");
 	if ( slashPos != std::wstring::npos )
-		slashPos += 1;
-	else
-		slashPos = 0;
-
-	return strFullIniPath.substr(slashPos);
-}
-
-void CreateIMGFile(FILE* hFile, FILE* hHeaderFile, const std::vector<cINIEntry>& pVector, uint8_t Version)
-{
-	std::cout << "Generating the IMG, it may take a few minutes...\n\n";
-
-	size_t			dwHeaderEntriesCounter = 0;
-	size_t			dwCurrentDataPos;
-	size_t			dwTotalFiles = pVector.size();
-
-	if ( Version != VC_IMG )
-	{
-		uint32_t fileHeader[2];
-		fileHeader[0] = MAKEFOURCC('V', 'E', 'R', '2');
-		fileHeader[1] = static_cast<uint32_t>(dwTotalFiles);
-
-		fwrite(fileHeader, 8, 1, hFile);
-
-		dwCurrentDataPos = (8 + 32 * dwTotalFiles) / 2048 + ((8 + 32 * dwTotalFiles) % 2048 != 0);
-		_fseeki64(hFile, dwCurrentDataPos * 2048, SEEK_SET);
-		hHeaderFile = hFile;
-	}
-	else
-		dwCurrentDataPos = 0;
-
-	CIMGHeader*		header = new CIMGHeader[dwTotalFiles];
-
-	for ( const auto& it : pVector )
-		it.WriteEntryToIMGFile(hFile, dwHeaderEntriesCounter++, dwCurrentDataPos, header);
-
-	_fseeki64(hHeaderFile, Version != VC_IMG ? 8 : 0, SEEK_SET);
-	fwrite(header, sizeof(CIMGHeader), dwTotalFiles, hHeaderFile);
-	delete[] header;
-
-	_fseeki64(hFile, 0, SEEK_END);
-	uint32_t	dwWhereAmI = ftell(hFile);
-	if ( dwWhereAmI % 2048 )
-	{
-		uint8_t buf = 0;
-		_fseeki64(hFile, 2047 - (dwWhereAmI % 2048), SEEK_CUR);
-		fwrite(&buf, 1, 1, hFile);
-	}
+		return strFullIniPath.substr(slashPos+1);
+	
+	return strFullIniPath;
 }
 
 int wmain( int argc, wchar_t *argv[] )
 {
 	std::ios_base::sync_with_stdio(false);
-	std::cout << "Native IMG Builder 1.5 by Silent\n\n";
+	std::cout << "Native IMG Builder 2.0 by Silent\n\n";
 
 	if ( argc < 2 || std::wstring( argv[1] ) == L"--help" )
 	{
@@ -290,60 +311,27 @@ int wmain( int argc, wchar_t *argv[] )
 
 	try
 	{
-		// INI path
 		std::wstring				strIniPath = MakeIniPath(argv[1]);
-		
-		// INI name
 		std::wstring				strIniName = MakeIniName(argv[1]);
 
-		std::vector<cINIEntry>		INIEntries;
 		std::wstring				strOutputFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".img");
 		std::wstring				strHeaderFileName = MakeFullFilePath(argc > 2 ? argv[2] : strIniPath, strIniName, L".dir");
-
-		cINIEntry::Init();
 
 		if ( !strIniPath.empty() )
 			SetCurrentDirectory(strIniPath.c_str());
 		
-		uint8_t IMGVersion = ParseINIFile( strIniName, INIEntries );
+		IMGBuild img;
 
-		std::cout << "Found " << INIEntries.size() << " files in total.\n";
+		img.ReadINI( strIniName );
 
-		if ( FILE* hOutputFile = _wfopen(strOutputFileName.c_str(), L"wb") )
-		{
-			if ( IMGVersion == VC_IMG )
-			{
-				if ( FILE* hHeaderFile = _wfopen(strHeaderFileName.c_str(), L"wb") )
-				{
-					CreateIMGFile(hOutputFile, hHeaderFile, INIEntries, IMGVersion);
-					cINIEntry::DeInit();
-					fclose(hOutputFile);
-					fclose(hHeaderFile);
-				}
-				else
-					throw L"Error creating file " + strHeaderFileName + L'!';
-			}
-			else
-			{
-				CreateIMGFile(hOutputFile, nullptr, INIEntries, IMGVersion);
-				cINIEntry::DeInit();
-				fclose(hOutputFile);
-			}
+		std::cout << "Found " << img.GetNumFiles() << " files in total.\n";
 
-			std::cout << "Done!\n";
-		}
-		else
-			throw L"Error creating file " + strOutputFileName + L'!';
+		img.BuildIMG( strOutputFileName, strHeaderFileName );
 	}
-	catch ( std::string& strException )
+	catch ( std::exception& e )
 	{
-		std::cerr << strException;
-		return 2;
-	}
-	catch ( std::wstring& strException )
-	{
-		std::wcerr << strException;
-		return 2;
+		std::cerr << e.what();
+		return -1;
 	}
 
 	return 0;
