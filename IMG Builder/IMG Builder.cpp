@@ -128,7 +128,11 @@ public:
 	void BuildIMG( const std::wstring& imgName, const std::wstring& dirName )
 	{
 		uint64_t numTotalBlocks = BuildHeaderData();
-		uint8_t* buffer = new uint8_t[static_cast<size_t>(m_biggestFile)];
+		uint8_t* buffer = (uint8_t*)VirtualAlloc( nullptr, static_cast<SIZE_T>(m_biggestFile), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );
+		if ( buffer == nullptr )
+		{
+			throw std::runtime_error( "Failed to allocate memory" );
+		}
 
 		HANDLE imgFile, dirFile;
 
@@ -174,7 +178,7 @@ public:
 			}
 		}
 		CloseHandle(imgFile);
-		delete[] buffer;
+		VirtualFree( buffer, 0, MEM_RELEASE );
 
 		dirFile = CreateFile( m_version == SA_IMG ? imgName.c_str() : dirName.c_str(), GENERIC_WRITE, 0, nullptr, m_version == SA_IMG ? OPEN_EXISTING : CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr );
 
