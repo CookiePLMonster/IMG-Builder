@@ -176,7 +176,7 @@ public:
 		CloseHandle(imgFile);
 		delete[] buffer;
 
-		dirFile = CreateFile( m_version == SA_IMG ? imgName.c_str() : dirName.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr );
+		dirFile = CreateFile( m_version == SA_IMG ? imgName.c_str() : dirName.c_str(), GENERIC_WRITE, 0, nullptr, m_version == SA_IMG ? OPEN_EXISTING : CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr );
 
 		DWORD bytesWritten = 0;
 		if ( m_version == SA_IMG )
