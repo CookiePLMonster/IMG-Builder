@@ -10,6 +10,7 @@
 
 #include "DelimStringReader.h"
 #include "Exceptions.hpp"
+#include "ScopedCurrentDirectory.h"
 
 #ifndef UNICODE
 #error IMG Builder must be compiled with Unicode character set
@@ -110,14 +111,12 @@ public:
 			reader.Reset();
 			GetPrivateProfileSection( L"Dirs", reader.GetBuffer(), static_cast<DWORD>(reader.GetSize()), fileName.c_str() );
 
-			wchar_t			wcCurrentDir[MAX_PATH];
-			GetCurrentDirectory(MAX_PATH, wcCurrentDir);
 
 			while ( const wchar_t* line = reader.GetString() )
 			{
-				SetCurrentDirectory( line );
+				ScopedCurrentDirectory directory( line );
+
 				uint32_t foundFiles = FindFilesInDir( );
-				SetCurrentDirectory( wcCurrentDir );
 
 				std::wcout << foundFiles << L" files in " << line << L" listed\n";
 			}
@@ -358,8 +357,10 @@ int wmain( int argc, wchar_t *argv[] )
 		std::wstring				strOutputFileName = MakeFullFilePath(argc > firstArg+1 ? argv[firstArg+1] : strIniPath, strIniName, L".img");
 		std::wstring				strHeaderFileName = MakeFullFilePath(argc > firstArg+1 ? argv[firstArg+1] : strIniPath, strIniName, L".dir");
 
+		ScopedCurrentDirectory directory;
+
 		if ( !strIniPath.empty() )
-			SetCurrentDirectory(strIniPath.c_str());
+			directory.Set( strIniPath.c_str() );
 		
 		IMGBuild img;
 
